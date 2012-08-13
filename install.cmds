@@ -1,0 +1,224 @@
+# run from mmc with
+# if fatload mmc 0 ${loadaddr} boot.scr; then; source ${loadaddr}; fi
+#
+# setenv ipaddr 10.0.0.200; setenv serverip 10.0.0.107; if tftp 81000000 boot.scr; then; source 81000000; fi
+
+echo ========== Reset env ==========
+env export $loadaddr serverip ipaddr netmask ethaddr rootpath
+mw 80000000 0; env import -t -d 80000000
+
+echo ========== Reset mtdparts ==========
+#mtdparts default
+setenv mtdparts mtdparts=omap2-nand.0:512k(MLO),1m(u-boot),256k(env1),256k(env2),6m(kernel),256k(bootparms),2m(splashimg),40m(mini),-(rootfs)
+
+setenv error 'if true; then
+	echo ERROR;
+	exit;
+fi'
+
+# where to store them
+setenv mlo_addr		00000000
+setenv mlo_size 	00080000
+setenv uboot_addr	00080000
+setenv uboot_size 	00100000
+setenv env1_addr	00180000
+setenv env1_size	00040000
+setenv env2_addr	001c0000
+setenv env2_size	00040000
+setenv kernel_addr	00200000
+setenv kernel_size	00600000
+setenv bootparms_addr	00800000
+setenv bootparms_size	00040000
+setenv splashimg_addr	00840000
+setenv splashimg_size	00200000
+setenv mini_addr	00a40000
+setenv mini_size	02800000
+setenv rootfs_addr	03240000
+setenv rootfs_size	1cdc0000
+
+setenv loadaddr 	82000000
+
+echo ========== env add MLO update ==========
+
+setenv updatemlo 'if true; then
+	echo; echo ========== Updating MLO ==========; echo;
+	nandecc hw
+	nand erase $mlo_addr $mlo_size
+	nand write ${loadaddr} $mlo_addr $mlo_size
+	nandecc sw
+fi'
+
+setenv updmlo 'if true; then
+	if run loadmlo updatemlo; then
+		echo DONE;
+	else;
+		run error;
+	fi
+fi'
+
+echo ========== env add U-boot update ==========
+
+setenv update 'if true; then
+	nand erase $uboot_addr $uboot_size;
+	nand write $loadaddr $uboot_addr $uboot_size
+fi'
+
+setenv upd 'if true; then
+	echo; echo ========== Updating U-boot ==========; echo;
+	if run load update; then
+		echo DONE;
+	else
+		run error;
+	fi
+fi'
+
+echo ========== env add Kernel update ==========
+
+setenv updatek 'if true; then
+	nand erase $kernel_addr $kernel_size;
+	nand write $loadaddr $kernel_addr $kernel_size
+fi'
+
+setenv updk 'if true; then
+	echo; echo ========== Updating kernel ==========; echo;
+	if run loadk updatek;
+		then echo DONE;
+	else
+		run error;
+	fi
+fi'
+
+echo ========== env add splash update ==========
+
+setenv updsplash 'if true; then
+	echo; echo ========== Updating splash ==========; echo
+	if run loadsplash; then
+		nand erase 0x00840000 0x00200000
+		nand write ${loadaddr} 0x00840000 0x00200000
+		setenv splashimage 0x82000000
+	fi;
+fi'
+
+setenv updfs 'if true; then
+	echo; echo ========== Updating rootfs ==========; echo;
+	if run loadubi; then
+		nand erase $rootfs_addr $rootfs_size
+		ubi part rootfs
+		ubi create container -
+		ubi write ${loadaddr} container ${filesize}
+	else;
+		run error
+	fi
+fi'
+
+setenv addubi 'setenv bootargs ${bootargs} root=ubi0:container ubi.mtd=8 rootfstype=ubifs'
+setenv nandrootfstype ubifs
+setenv nandroot ubi0:container
+setenv nandargs 'setenv bootargs root=${nandroot} rootfstype=${nandrootfstype} ubi.mtd=8'
+
+# needs kernel loaded in RAM..
+setenv updspl 'if true; then
+	echo; echo ========== Updating SPL arguments ==========; echo;
+	run nandargs addip addtty addmtd addmisc;
+	spl export atags;
+	nand erase 0x800000 0x20000;
+	nand write 0x80000100 0x800000 0x20000
+fi'
+
+setenv nandargs 'setenv bootargs root=${nandroot} rootfstype=${nandrootfstype}'
+
+setenv misc 	'omapdss.def_disp=lcd omapfb.vram=0:1M vram=1M earlyprintk=ttyO0,115200 ethaddr=${ethaddr}'
+setenv addmtd	'setenv bootargs ${bootargs} ${mtdparts}'
+setenv baudrate 115200
+setenv addtty	'setenv bootargs ${bootargs} console=ttyO0,${baudrate}'
+setenv addmisc	'setenv bootargs ${bootargs} ${misc}'
+setenv addip	echo
+
+setenv nandrootfstype 	ubifs
+setenv nandroot		ubi0:container
+setenv nandargs		'setenv bootargs root=${nandroot} rootfstype=${nandrootfstype} ubi.mtd=8'
+
+setenv nandboot	'if true; then
+	run nandargs addip addtty addmtd addmisc;
+	nand read ${loadaddr} kernel;
+	bootm ${loadaddr};
+fi'
+
+setenv loadbootscript 'fatload mmc 0 ${loadaddr} boot.scr'
+
+setenv bootcmd 'if true; then
+	if mmc rescan ${mmcdev}; then
+		echo SD/MMC found on device ${mmcdev};
+		if run loadbootscript; then
+			echo Running bootscript from mmc ...;
+			source ${loadaddr};
+		fi;
+	else;
+		run nandboot;
+	fi;
+fi'
+
+# save the cleaned up env
+saveenv
+
+# debug
+setenv nfsargs 'setenv bootargs root=/dev/nfs rw nfsroot=${serverip}:${rootpath}'
+
+setenv nandboot_nfs	'if true; then
+	run nfsargs addip addtty addmtd addmisc;
+	nand read ${loadaddr} kernel;
+	bootm ${loadaddr};
+fi'
+
+# restore our ipaddr etc
+env import -t $loadaddr
+
+# files needed in case of tftp
+setenv use_tftp 'if true; then
+	setenv mlo 		bpp3/MLO;
+	setenv u-boot 		bpp3/u-boot.img;
+	setenv bootfile 	bpp3/uImage;
+	setenv splash 		bpp3/splash.bmp
+	setenv ubi 		bpp3/ubifs.img;
+
+	setenv loadmlo 		tftp $mlo;
+	setenv load 		tftp ${u-boot};
+	setenv loadk 		tftp $bootfile;
+	setenv loadubi		tftp ubifs.img;
+	setenv loadsplash 	tftp $splash
+fi'
+
+# files needed in case of the mmc card
+setenv use_mmc 'if true; then
+	setenv mlo 		mlo
+	setenv u-boot 		u-boot.img
+	setenv bootfile 	uimage
+	setenv splash		splash.bmp
+	setenv ubi 		ubifs.img
+
+	setenv loadmlo 		fatload mmc 0 $loadaddr $mlo
+	setenv load 		fatload mmc 0 $loadaddr ${u-boot}
+	setenv loadk 		fatload mmc 0 $loadaddr $bootfile
+	setenv loadubi		fatload mmc 0 $loadaddr ubifs.img
+	setenv loadsplash 	fatload mmc 0 $loadaddr $splash
+fi'
+
+if mmc rescan ${mmcdev}; then
+	run use_mmc;
+else;
+	run use_tftp;
+fi;
+
+setenv updall run upd updk updspl updsplash updfs updmlo
+
+# debug only, save the complete env
+saveenv
+
+run updall
+
+# debug only, save the complete env
+run use_tftp
+saveenv
+
+# green screen
+mw 0x8f600000 00ff00 20000
