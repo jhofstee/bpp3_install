@@ -2,9 +2,10 @@
 # if fatload mmc 0 ${loadaddr} boot.scr; then; source ${loadaddr}; fi
 #
 # setenv ipaddr 10.0.0.200; setenv serverip 10.0.0.107; if tftp 81000000 boot.scr; then; source 81000000; fi
+# setenv ipaddr 192.168.4.252; setenv serverip 192.168.4.103; if tftp 81000000 boot.scr; then; source 81000000; fi
 
 echo ========== Reset env ==========
-env export $loadaddr serverip ipaddr netmask ethaddr rootpath
+env export $loadaddr serverip ipaddr netmask ethaddr rootpath gatewayip netdev
 mw 80000000 0; env import -t -d 80000000
 
 echo ========== Reset mtdparts ==========
@@ -127,12 +128,20 @@ fi'
 
 setenv nandargs 'setenv bootargs root=${nandroot} rootfstype=${nandrootfstype}'
 
-setenv misc 	'omapdss.def_disp=lcd omapfb.vram=0:1M vram=1M earlyprintk=ttyO0,115200 ethaddr=${ethaddr}'
+setenv misc 	'omapdss.def_disp=lcd omapfb.vram=0:1M vram=1M earlyprintk=ttyO0,115200'
 setenv addmtd	'setenv bootargs ${bootargs} ${mtdparts}'
 setenv baudrate 115200
 setenv addtty	'setenv bootargs ${bootargs} console=ttyO0,${baudrate}'
-setenv addmisc	'setenv bootargs ${bootargs} ${misc}'
-setenv addip	echo
+setenv addmisc	'setenv bootargs ${bootargs} ${misc} ethaddr=${ethaddr}'
+setenv addip_sta 'setenv bootargs ${bootargs} ip=${ipaddr}:${serverip}:${gatewayip}:${netmask}:${hostname}:${netdev}:off'
+setenv addip_dyn	'setenv bootargs ${bootargs} ip=dhcp'
+setenv addip	'if true; then;
+	if test -n ${ipdyn}; then;
+		run addip_dyn;
+	else;
+		run addip_sta;
+	fi;
+fi'
 
 setenv nandrootfstype 	ubifs
 setenv nandroot		ubi0:container
@@ -158,6 +167,8 @@ setenv bootcmd 'if true; then
 	fi;
 fi'
 
+setenv hostname bpp3
+
 # save the cleaned up env
 saveenv
 
@@ -167,6 +178,12 @@ setenv nfsargs 'setenv bootargs root=/dev/nfs rw nfsroot=${serverip}:${rootpath}
 setenv nandboot_nfs	'if true; then
 	run nfsargs addip addtty addmtd addmisc;
 	nand read ${loadaddr} kernel;
+	bootm ${loadaddr};
+fi'
+
+setenv net_nfs		'if true; then
+	tftp ${loadaddr} ${bootfile};
+	run nfsargs addip addtty addmtd addmisc;
 	bootm ${loadaddr};
 fi'
 
