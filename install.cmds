@@ -1,8 +1,8 @@
 # run from mmc with
-# if fatload mmc 0 ${loadaddr} boot.scr; then; source ${loadaddr}; fi
+# if fatload mmc 0 80008000 boot.scr; then; source 80008000; fi
 #
-# setenv ipaddr 10.0.0.200; setenv serverip 10.0.0.107; if tftp 81000000 boot.scr; then; source 81000000; fi
-# setenv ipaddr 192.168.4.252; setenv serverip 192.168.4.103; if tftp 81000000 boot.scr; then; source 81000000; fi
+# setenv ipaddr 10.0.0.200; setenv serverip 10.0.0.107; if tftp 80001000 boot.scr; then; source 80001000; fi
+# setenv ipaddr 192.168.4.252; setenv serverip 192.168.4.103; if tftp 80001000 boot.scr; then; source 80001000; fi
 
 echo ========== Reset env ==========
 env export $loadaddr serverip ipaddr netmask ethaddr rootpath gatewayip netdev
@@ -153,14 +153,14 @@ setenv nandboot	'if true; then
 	bootm ${loadaddr};
 fi'
 
-setenv loadbootscript 'fatload mmc 0 ${loadaddr} boot.scr'
+setenv loadbootscript 'fatload mmc 0 80004000 boot.scr'
 
 setenv bootcmd 'if true; then
 	if mmc rescan ${mmcdev}; then
 		echo SD/MMC found on device ${mmcdev};
 		if run loadbootscript; then
 			echo Running bootscript from mmc ...;
-			source ${loadaddr};
+			source 80004000;
 		fi;
 	else;
 		run nandboot;
@@ -195,7 +195,7 @@ setenv use_tftp 'if true; then
 	setenv mlo 		bpp3/MLO;
 	setenv u-boot 		bpp3/u-boot.img;
 	setenv bootfile 	bpp3/uImage;
-	setenv splash 		bpp3/splash.bmp
+	setenv splash 		bpp3/splash.img
 	setenv ubi 		bpp3/ubifs.img;
 
 	setenv loadmlo 		tftp $mlo;
@@ -210,7 +210,7 @@ setenv use_mmc 'if true; then
 	setenv mlo 		mlo
 	setenv u-boot 		u-boot.img
 	setenv bootfile 	uimage
-	setenv splash		splash.bmp
+	setenv splash		splash.img
 	setenv ubi 		ubifs.img
 
 	setenv loadmlo 		fatload mmc 0 $loadaddr $mlo

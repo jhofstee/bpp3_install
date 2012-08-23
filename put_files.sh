@@ -10,5 +10,5 @@ cp files/MLO $tg
 cp files/u-boot.img $tg
 cp files/uImage $tg
 cp files/ubifs.img $tg
-cp files/splash.bmp $tg
+cp files/splash.img $tg
 cp install.scr $tg/boot.scr
