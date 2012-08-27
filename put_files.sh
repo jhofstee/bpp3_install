@@ -7,6 +7,7 @@ fi
 
 tg=$1
 cp files/MLO $tg
+cp files/MLO_falcon $tg
 cp files/u-boot.img $tg
 cp files/uImage $tg
 cp files/ubifs.img $tg

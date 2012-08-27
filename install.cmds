@@ -207,7 +207,7 @@ fi'
 
 # files needed in case of the mmc card
 setenv use_mmc 'if true; then
-	setenv mlo 		mlo
+	setenv mlo 		mlo_falcon
 	setenv u-boot 		u-boot.img
 	setenv bootfile 	uimage
 	setenv splash		splash.img
