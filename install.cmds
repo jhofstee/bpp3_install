@@ -1,7 +1,7 @@
 # run from mmc with
 # if fatload mmc 0 80008000 boot.scr; then; source 80008000; fi
 #
-# setenv ipaddr 10.0.0.200; setenv serverip 10.0.0.107; if tftp 80001000 boot.scr; then; source 80001000; fi
+# setenv ipaddr 10.0.0.200; setenv serverip 10.0.0.117; if tftp 80001000 boot.scr; then; source 80001000; fi
 # setenv ipaddr 192.168.4.252; setenv serverip 192.168.4.103; if tftp 80001000 boot.scr; then; source 80001000; fi
 
 echo ========== Reset env ==========
@@ -10,120 +10,159 @@ mw 80000000 0; env import -t -d 80000000
 
 echo ========== Reset mtdparts ==========
 #mtdparts default
-setenv mtdparts mtdparts=omap2-nand.0:512k(MLO),1m(u-boot),256k(env1),256k(env2),6m(kernel),256k(bootparms),2m(splashimg),40m(mini),-(rootfs)
+setenv mtdparts mtdparts=omap2-nand.0:512k(MLO),1m(u-boot),256k(env1),256k(env2),1m(u-boot2),256k(bootparms),768k(splash),6m(kernel),40m(data),-(rootfs)
+
+setenv dot 'setenv stdout vga; echo ".\\c"; setenv stdout serial'
 
 setenv error 'if true; then
-	echo ERROR;
+	setenv stdout vga
+	echo
+	echo error: $err;
+	setenv stderr serial
+	setenv stdout serial
 	exit;
 fi'
 
-# where to store them
-setenv mlo_addr		00000000
-setenv mlo_size 	00080000
-setenv uboot_addr	00080000
-setenv uboot_size 	00100000
-setenv env1_addr	00180000
-setenv env1_size	00040000
-setenv env2_addr	001c0000
-setenv env2_size	00040000
-setenv kernel_addr	00200000
-setenv kernel_size	00600000
-setenv bootparms_addr	00800000
-setenv bootparms_size	00040000
-setenv splashimg_addr	00840000
-setenv splashimg_size	00200000
-setenv mini_addr	00a40000
-setenv mini_size	02800000
-setenv rootfs_addr	03240000
-setenv rootfs_size	1cdc0000
-
 setenv loadaddr 	82000000
+setenv uloadaddr	81000000
+setenv cmpaddr		83000000
 
 echo ========== env add MLO update ==========
 
-setenv updatemlo 'if true; then
-	echo; echo ========== Updating MLO ==========; echo;
-	nandecc hw
-	nand erase $mlo_addr $mlo_size
-	nand write ${loadaddr} $mlo_addr $mlo_size
-	nandecc sw
-fi'
-
-setenv updmlo 'if true; then
-	if run loadmlo updatemlo; then
-		echo DONE;
-	else;
-		run error;
-	fi
-fi'
+setenv upd_mlo 'run load_mlo mlo_check_all'
+setenv upd_mlo_img 'run load_mlo_img mlo_check_all'
 
 echo ========== env add U-boot update ==========
 
-setenv update 'if true; then
-	nand erase $uboot_addr $uboot_size;
-	nand write $loadaddr $uboot_addr $uboot_size
+setenv update_uboot 'if true; then
+	nand erase.part u-boot $uboot_size;
+	nand write $uloadaddr u-boot $uboot_load_size
 fi'
 
-setenv upd 'if true; then
-	echo; echo ========== Updating U-boot ==========; echo;
-	if run load update; then
-		echo DONE;
-	else
-		run error;
-	fi
+setenv update_urescue 'if true; then
+	nand erase.part u-boot2;
+	nand write $uloadaddr u-boot2 $uboot_load_size
 fi'
+
+setenv upd_uboot 'run load_uboot update_uboot;'
+setenv upd_urescue 'run load_uboot update_urescue'
 
 echo ========== env add Kernel update ==========
 
-setenv updatek 'if true; then
-	nand erase $kernel_addr $kernel_size;
-	nand write $loadaddr $kernel_addr $kernel_size
+setenv update_linux 'if true; then
+	nand erase.part kernel;
+	nand write $loadaddr kernel $filesize
 fi'
 
-setenv updk 'if true; then
-	echo; echo ========== Updating kernel ==========; echo;
-	if run loadk updatek;
-		then echo DONE;
-	else
-		run error;
-	fi
-fi'
+setenv upd_linux 'run do_load_linux update_linux'
 
 echo ========== env add splash update ==========
 
-setenv updsplash 'if true; then
+setenv upd_splash 'if true; then
 	echo; echo ========== Updating splash ==========; echo
-	if run loadsplash; then
-		nand erase 0x00840000 0x00200000
-		nand write ${loadaddr} 0x00840000 0x00200000
-		setenv splashimage 0x82000000
+	if run do_load_splash; then
+		nand erase.part splash
+		nand write ${loadaddr} splash $filesize
+		setenv splashimage 0x84000000
 	fi;
 fi'
 
-setenv updfs 'if true; then
+setenv upd_fs 'if true; then
 	echo; echo ========== Updating rootfs ==========; echo;
-	if run loadubi; then
-		nand erase $rootfs_addr $rootfs_size
+	if run do_load_ubi; then
+		nand erase.part rootfs
 		ubi part rootfs
 		ubi create container -
 		ubi write ${loadaddr} container ${filesize}
-	else;
+	else
 		run error
 	fi
 fi'
 
-setenv addubi 'setenv bootargs ${bootargs} root=ubi0:container ubi.mtd=8 rootfstype=ubifs'
-setenv nandrootfstype ubifs
-setenv nandroot ubi0:container
-setenv nandargs 'setenv bootargs root=${nandroot} rootfstype=${nandrootfstype} ubi.mtd=8'
+# The ROM code looks for a valid MLO in the first 4 sectors. It needs
+# hw ecc! When a bad block/ empty is encountered it continues with the
+# next one. So they are actually all flashed. If they are all bad the
+# device is simply beyond repair. The writes should actually not continue
+# with the next block in case it is invalid (but they will as it is).
+# They are therefore written in reverse order, so worst case the same
+# data gets written to a block without an erase.
+
+setenv mlo1_check 'if true; then
+	echo "loading mlo1 sector"
+	mw.b $cmpaddr 0 $mlo_load_size
+	nand read $cmpaddr 0 $mlo_load_size
+	if cmp.b $mloaddr $cmpaddr $mlo_load_size; then
+		echo "up to date";
+	else
+		nand erase 0 20000
+		nand write $mloaddr 0 $mlo_load_size
+	fi
+fi'
+
+setenv mlo2_check 'if true; then
+	echo "loading mlo2 sector"
+	mw.b $cmpaddr 0 $mlo_load_size
+	nand read $cmpaddr 20000 $mlo_load_size
+	if cmp.b $mloaddr $cmpaddr $mlo_load_size; then
+		echo "up to date";
+
+	else
+		nand erase 20000 20000
+		nand write $mloaddr 20000 $mlo_load_size
+	fi
+fi'
+
+setenv mlo3_check 'if true; then
+	echo "loading mlo3 sector"
+	mw.b $cmpaddr 0 $mlo_load_size
+	nand read $cmpaddr 40000 $mlo_load_size
+	if cmp.b $mloaddr $cmpaddr $mlo_load_size; then
+		echo "up to date";
+	else
+		nand erase 40000 20000
+		nand write $mloaddr 40000 $mlo_load_size
+	fi
+fi'
+
+setenv mlo4_check 'if true; then
+	echo "loading mlo4 sector"
+
+	mw.b $cmpaddr 0 $mlo_load_size
+	nand read $cmpaddr 60000 $mlo_load_size
+	if cmp.b $mloaddr $cmpaddr $mlo_load_size; then
+		echo "up to date";
+	else
+		nand erase 60000 20000
+		nand write $mloaddr 60000 $mlo_load_size
+	fi
+fi'
+
+# Update all MLO sectors to the loaded MLO at loadaddr,
+# needs mlo_load_size set! Don't stop on failure, only
+# one has to be valid...
+setenv mlo_check_all 'if true; then
+	nandecc hw;
+
+	run dot;
+	run mlo4_check;
+	run dot;
+	run mlo3_check;
+	run dot;
+	run mlo2_check;
+	run dot;
+	run mlo1_check;
+	run dot;
+
+	nandecc sw;
+fi'
 
 # needs kernel loaded in RAM..
-setenv updspl 'if true; then
+setenv upd_spl 'if true; then
 	echo; echo ========== Updating SPL arguments ==========; echo;
 	run nandargs addip addtty addmtd addmisc;
 	spl export atags;
-	nand erase 0x800000 0x20000;
-	nand write 0x80000100 0x800000 0x20000
+	nand erase.part bootparms
+	nand write 0x80000100 bootparms 0x400
 fi'
 
 setenv nandargs 'setenv bootargs root=${nandroot} rootfstype=${nandrootfstype}'
@@ -145,7 +184,7 @@ fi'
 
 setenv nandrootfstype 	ubifs
 setenv nandroot		ubi0:container
-setenv nandargs		'setenv bootargs root=${nandroot} rootfstype=${nandrootfstype} ubi.mtd=8'
+setenv nandargs		'setenv bootargs root=${nandroot} rootfstype=${nandrootfstype} ubi.mtd=9'
 
 setenv nandboot	'if true; then
 	run nandargs addip addtty addmtd addmisc;
@@ -167,9 +206,141 @@ setenv bootcmd 'if true; then
 	fi;
 fi'
 
+# load mlo and remember its size
+# Note: while there is space for 128k this file is loaded into the
+# 64k sdram of the mcu. So refuse a file larger then 54k to leave
+# some space for stack etc.
+setenv load_mlo 'if true; then
+	if run do_load_mlo; then
+		setenv mloaddr $loadaddr
+		setenv mlo_load_size $filesize
+		if test 0x$mlo_load_size -lt 55296; then
+			echo "OK"
+		else
+			setenv err "the file $mlo is (most likely) too large"
+			run error
+		fi
+	else
+		setenv err "the file $mlo is missing"
+		run error
+	fi
+fi'
+
+# load mlo.img and remember its size
+# mlo.img is just a MLO but signed with a crc32 by mkimage
+# the image itself is 64 bytes after the start and thus its length
+# is 64 bytes less. (40 hex)
+setenv load_mlo_img 'if true; then
+	mw.b $loadaddr ff 200000
+	if run do_load_mlo_img; then
+		setexpr mloaddr $loadaddr + 40
+		setexpr mlo_load_size $filesize - 40
+		if test 0x$mlo_load_size -lt 55296; then
+			echo "OK"
+		else
+			setenv err "the file $mlo is (most likely) too large"
+			run error
+		fi
+
+		if iminfo $loadaddr; then
+			echo "OK"
+		else
+			setenv err "the file ${mlo_img} is corrupt"
+			run error
+		fi
+	else
+		setenv err "the file $mlo is missing"
+		run error
+	fi
+fi'
+
+# load u-boot and remember its size
+# note on u-boot 2103.01-rc2 a failed test will exit the run command..
+# so it must be written to be true is the sane case..
+setenv load_uboot 'if true; then
+	if run do_load_uboot; then
+		setenv uboot_load_size $filesize;
+		if test 0x$uboot_load_size -lt 0x100000; then
+			echo "OK"
+		else
+			setenv err "the file ${u-boot} is too large"
+			run error
+		fi
+
+		if iminfo $uloadaddr; then
+			echo "OK"
+		else
+			setenv err "the file ${u-boot} is corrupt"
+			run error
+		fi
+	else
+		setenv err "the file ${u-boot} is missing"
+		run error
+	fi
+fi'
+
+setenv check_uboot 'if true; then
+	echo "main bootloader"
+	mw.b $cmpaddr 0 $uboot_load_size
+	run dot
+	nand read $cmpaddr u-boot $uboot_load_size
+	run dot
+	if cmp.b $uloadaddr $cmpaddr $uboot_load_size; then
+		echo "up to date";
+		run dot
+	else
+		if nand erase.part u-boot && nand write $uloadaddr u-boot $uboot_load_size; then
+			echo "ok"
+			run dot
+		else
+			setenv err "u-boot could not be updated"
+			run error
+		fi
+	fi
+fi'
+
+setenv check_urescue 'if true; then
+	echo "backup bootloader"
+	mw.b $cmpaddr 0 $uboot_load_size
+	run dot
+	nand read $cmpaddr u-boot2 $uboot_load_size
+	run dot
+	if cmp.b $uloadaddr $cmpaddr $uboot_load_size; then
+		echo "up to date";
+		run dot
+	else
+		if nand erase.part u-boot2 && nand write $uloadaddr u-boot2 $uboot_load_size; then
+			echo "ok"
+			run dot
+		else
+			setenv err "the rescue u-boot could not be updated"
+			run error
+		fi
+	fi
+fi'
+
+#
+# Check if updates for MLO and u-boot are needed (and update if so)
+# Make sure a valid u-boot AND mlo is available before changing anything..
+#
+setenv check_update 'if true; then
+	setenv stdout vga
+	setenv stderr vga
+	setenv err "an unknown error occured"
+	echo " starting update \\c"
+	setenv stdout serial
+	if run load_mlo load_uboot; then
+		echo "OK";
+		run mlo_check_all check_uboot check_urescue
+	else
+		setenv err "this should not occur"
+		run error
+	fi
+fi'
+
 setenv hostname bpp3
 
-# save the cleaned up env
+# save the new env
 saveenv
 
 # debug
@@ -193,31 +364,35 @@ env import -t $loadaddr
 # files needed in case of tftp
 setenv use_tftp 'if true; then
 	setenv mlo 		bpp3/MLO;
+	setenv mlo_img		bpp3/MLO.img;
 	setenv u-boot 		bpp3/u-boot.img;
 	setenv bootfile 	bpp3/uImage;
 	setenv splash 		bpp3/splash.img
 	setenv ubi 		bpp3/ubifs.img;
 
-	setenv loadmlo 		tftp $mlo;
-	setenv load 		tftp ${u-boot};
-	setenv loadk 		tftp $bootfile;
-	setenv loadubi		tftp ubifs.img;
-	setenv loadsplash 	tftp $splash
+	setenv do_load_mlo 	tftp $mlo;
+	setenv do_load_mlo_img 	tftp $mlo_img;
+	setenv do_load_uboot	tftp $uloadaddr ${u-boot};
+	setenv do_load_linux	tftp $bootfile;
+	setenv do_load_ubi	tftp ubifs.img;
+	setenv do_load_splash 	tftp $splash
 fi'
 
 # files needed in case of the mmc card
 setenv use_mmc 'if true; then
 	setenv mlo 		mlo_falcon
+	setenv mlo_img 		mlo.img;
 	setenv u-boot 		u-boot.img
 	setenv bootfile 	uimage
 	setenv splash		splash.img
 	setenv ubi 		ubifs.img
 
-	setenv loadmlo 		fatload mmc 0 $loadaddr $mlo
-	setenv load 		fatload mmc 0 $loadaddr ${u-boot}
-	setenv loadk 		fatload mmc 0 $loadaddr $bootfile
-	setenv loadubi		fatload mmc 0 $loadaddr ubifs.img
-	setenv loadsplash 	fatload mmc 0 $loadaddr $splash
+	setenv do_load_mlo 	fatload mmc 0 $loadaddr $mlo
+	setenv do_load_mlo_img 	fatload mmc 0 $loadaddr $mlo_img
+	setenv do_load_uboot 	fatload mmc 0 $uloadaddr ${u-boot}
+	setenv do_load_linux	fatload mmc 0 $loadaddr $bootfile
+	setenv do_load_ubi	fatload mmc 0 $loadaddr ubifs.img
+	setenv do_load_splash 	fatload mmc 0 $loadaddr $splash
 fi'
 
 if mmc rescan ${mmcdev}; then
@@ -226,16 +401,18 @@ else;
 	run use_tftp;
 fi;
 
-setenv updall run upd updk updspl updsplash updfs updmlo
+setenv upd_all run upd updk updspl updsplash updfs updmlo
+
+setenv upd 'run upd_mlo upd_uboot'
 
 # debug only, save the complete env
 saveenv
 
-run updall
+#run upd_all
 
 # debug only, save the complete env
 run use_tftp
 saveenv
 
 # green screen
-mw 0x8f600000 00ff00 20000
+#mw 0x8fE00000 00ff00 1FE00
