@@ -1,4 +1,4 @@
-ALL: install.scr splash.img copy
+ALL: install.scr splash.img copy MLO.img
 
 .PHONY: copy
 
@@ -14,7 +14,10 @@ install.scr: install.cmds
 
 
 splash8.bmp: splash.bmp
-	convert splash.bmp -colors 256 splash8.bmp
+#	convert splash.bmp -colors 256 splash8.bmp
 
-splash.img: splash8.bmp
-	mkimage -A arm -T kernel -C none -n 'splash' -d splash8.bmp splash.img
+splash.img: splash.bmp
+	mkimage -A arm -T kernel -C none -n 'splash' -d splash.bmp splash.img
+
+MLO.img: ../u-boot/MLO
+	mkimage -A arm -T kernel -C none -n 'MLO' -d ../u-boot/MLO MLO.img
