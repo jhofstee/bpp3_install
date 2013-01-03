@@ -1,12 +1,8 @@
 # run from mmc with
 # if fatload mmc 0 80008000 boot.scr; then; source 80008000; fi
 #
-# setenv ipaddr 10.0.0.200; setenv serverip 10.0.0.117; if tftp 80001000 boot.scr; then; source 80001000; fi
-# setenv ipaddr 192.168.4.252; setenv serverip 192.168.4.103; if tftp 80001000 boot.scr; then; source 80001000; fi
-
-echo ========== Reset env ==========
-env export $loadaddr serverip ipaddr netmask ethaddr rootpath gatewayip netdev
-mw 80000000 0; env import -t -d 80000000
+# setenv ipaddr 10.0.0.200; setenv serverip 10.0.0.117; if tftp 84800000 boot.scr; then; source 84800000; fi
+# setenv ipaddr 192.168.4.252; setenv serverip 192.168.4.103; if tftp 80800000 boot.scr; then; source 80800000; fi
 
 echo ========== Reset mtdparts ==========
 #mtdparts default
@@ -23,9 +19,10 @@ setenv error 'if true; then
 	exit;
 fi'
 
-setenv loadaddr 	82000000
-setenv uloadaddr	81000000
-setenv cmpaddr		83000000
+setenv loadaddr 	80300000
+setenv uloadaddr	80700000
+setenv cmpaddr		81800000
+setenv ramaddr		81800000
 
 echo ========== env add MLO update ==========
 
@@ -166,8 +163,8 @@ setenv upd_spl 'if true; then
 fi'
 
 setenv nandargs 'setenv bootargs root=${nandroot} rootfstype=${nandrootfstype}'
-
-setenv misc 	'omapdss.def_disp=lcd omapfb.vram=0:1M vram=1M earlyprintk=ttyO0,115200'
+# omapdss.def_disp=lcd omapfb.vram=0:1M vram=1M
+setenv misc 	'omapdss.def_disp=lcd omapfb.vram=0:2M vram=2M earlyprintk=ttyO0,115200'
 setenv addmtd	'setenv bootargs ${bootargs} ${mtdparts}'
 setenv baudrate 115200
 setenv addtty	'setenv bootargs ${bootargs} console=ttyO0,${baudrate}'
@@ -188,22 +185,33 @@ setenv nandargs		'setenv bootargs root=${nandroot} rootfstype=${nandrootfstype} 
 
 setenv nandboot	'if true; then
 	run nandargs addip addtty addmtd addmisc;
-	nand read ${loadaddr} kernel;
-	bootm ${loadaddr};
+	if nand read ${loadaddr} kernel && bootm ${loadaddr}; then
+		echo "not returning"
+	else
+		setenv err could not boot kernel
+		run error
+	fi
 fi'
 
 setenv loadbootscript 'fatload mmc 0 80004000 boot.scr'
 
 setenv bootcmd 'if true; then
+	echo checking usb;
+	usb start;
+	if fatload usb 0 80004000 boot.scr; then
+		echo starting from usb;
+		source 80004000;
+	fi
+
 	if mmc rescan ${mmcdev}; then
 		echo SD/MMC found on device ${mmcdev};
 		if run loadbootscript; then
 			echo Running bootscript from mmc ...;
 			source 80004000;
-		fi;
-	else;
-		run nandboot;
-	fi;
+		fi
+	fi
+
+	run nandboot;
 fi'
 
 # load mlo and remember its size
@@ -329,7 +337,7 @@ setenv check_update 'if true; then
 	setenv err "an unknown error occured"
 	echo " starting update \\c"
 	setenv stdout serial
-	if run load_mlo load_uboot; then
+	if run load_mlo_img load_uboot; then
 		echo "OK";
 		run mlo_check_all check_uboot check_urescue
 	else
@@ -339,6 +347,13 @@ setenv check_update 'if true; then
 fi'
 
 setenv hostname bpp3
+
+setenv boot_ramdisk 'if true; then
+	run load_ramdisk do_load_linux
+	setenv bootargs root=/dev/ram0 rw rootfstype=ext2 rootwait ramdisk_size=16384
+	run addtty addmisc addmtd;
+	bootm $loadaddr $ramaddr
+fi'
 
 # save the new env
 saveenv
@@ -358,8 +373,19 @@ setenv net_nfs		'if true; then
 	bootm ${loadaddr};
 fi'
 
-# restore our ipaddr etc
-env import -t $loadaddr
+setenv load_ramdisk 'if true; then
+	if run do_load_ramdisk; then
+		if iminfo $ramaddr; then
+			echo "ok"
+		else
+			setenv err ramdisk is not valid
+			run error
+		fi
+	else
+		setenv err ramdisk could not be loaded
+		run error
+	fi
+fi'
 
 # files needed in case of tftp
 setenv use_tftp 'if true; then
@@ -369,6 +395,7 @@ setenv use_tftp 'if true; then
 	setenv bootfile 	bpp3/uImage;
 	setenv splash 		bpp3/splash.img
 	setenv ubi 		bpp3/ubifs.img;
+	setenv ramdisk 		bpp3/ramdisk
 
 	setenv do_load_mlo 	tftp $mlo;
 	setenv do_load_mlo_img 	tftp $mlo_img;
@@ -376,6 +403,7 @@ setenv use_tftp 'if true; then
 	setenv do_load_linux	tftp $bootfile;
 	setenv do_load_ubi	tftp ubifs.img;
 	setenv do_load_splash 	tftp $splash
+	setenv do_load_ramdisk	tftp $ramaddr $ramdisk
 fi'
 
 # files needed in case of the mmc card
@@ -395,6 +423,23 @@ setenv use_mmc 'if true; then
 	setenv do_load_splash 	fatload mmc 0 $loadaddr $splash
 fi'
 
+# files needed in case of the usb card mmm merge this with above
+setenv use_usb 'if true; then
+	setenv mlo 		mlo_falcon
+	setenv mlo_img 		mlo.img;
+	setenv u-boot 		u-boot.img
+	setenv bootfile 	uimage
+	setenv splash		splash.img
+	setenv ubi 		ubifs.img
+
+	setenv do_load_mlo 	fatload usb 0 $loadaddr $mlo
+	setenv do_load_mlo_img 	fatload usb 0 $loadaddr $mlo_img
+	setenv do_load_uboot 	fatload usb 0 $uloadaddr ${u-boot}
+	setenv do_load_linux	fatload usb 0 $loadaddr $bootfile
+	setenv do_load_ubi	fatload usb 0 $loadaddr ubifs.img
+	setenv do_load_splash 	fatload usb 0 $loadaddr $splash
+fi'
+
 if mmc rescan ${mmcdev}; then
 	run use_mmc;
 else;
@@ -403,7 +448,7 @@ fi;
 
 setenv upd_all run upd updk updspl updsplash updfs updmlo
 
-setenv upd 'run upd_mlo upd_uboot'
+setenv upd 'run upd_mlo  upd_uboot'
 
 # debug only, save the complete env
 saveenv
@@ -411,8 +456,21 @@ saveenv
 #run upd_all
 
 # debug only, save the complete env
-run use_tftp
-saveenv
+#run use_tftp
+#saveenv
+
+run use_usb
+#check_update
+
+# check for / update u-boot
+#run check_update
+
+# continue in linux
+run boot_ramdisk
+#setenv rootpath /opt/bpp3/1.3/sysroots/bpp3-update
+#run net_nfs
+
+setenv bootdelay 2
 
 # green screen
 #mw 0x8fE00000 00ff00 1FE00
