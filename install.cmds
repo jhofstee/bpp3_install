@@ -167,7 +167,8 @@ setenv nandargs 'setenv bootargs root=${nandroot} rootfstype=${nandrootfstype}'
 setenv misc 	'omapdss.def_disp=lcd omapfb.vram=0:2M vram=2M earlyprintk=ttyO0,115200'
 setenv addmtd	'setenv bootargs ${bootargs} ${mtdparts}'
 setenv baudrate 115200
-setenv addtty	'setenv bootargs ${bootargs} console=ttyO0,${baudrate}'
+setenv addtty	'setenv bootargs ${bootargs} console=tty1'
+#setenv addtty	'setenv bootargs ${bootargs} console=ttyO0,${baudrate}'
 setenv addmisc	'setenv bootargs ${bootargs} ${misc} ethaddr=${ethaddr}'
 setenv addip_sta 'setenv bootargs ${bootargs} ip=${ipaddr}:${serverip}:${gatewayip}:${netmask}:${hostname}:${netdev}:off'
 setenv addip_dyn	'setenv bootargs ${bootargs} ip=dhcp'
@@ -414,6 +415,7 @@ setenv use_mmc 'if true; then
 	setenv bootfile 	uimage
 	setenv splash		splash.img
 	setenv ubi 		ubifs.img
+	setenv ramdisk 		ramdisk
 
 	setenv do_load_mlo 	fatload mmc 0 $loadaddr $mlo
 	setenv do_load_mlo_img 	fatload mmc 0 $loadaddr $mlo_img
@@ -421,10 +423,12 @@ setenv use_mmc 'if true; then
 	setenv do_load_linux	fatload mmc 0 $loadaddr $bootfile
 	setenv do_load_ubi	fatload mmc 0 $loadaddr ubifs.img
 	setenv do_load_splash 	fatload mmc 0 $loadaddr $splash
+	setenv do_load_ramdisk	fatload mmc 0 $ramaddr $ramdisk
 fi'
 
 # files needed in case of the usb card mmm merge this with above
 setenv use_usb 'if true; then
+	setenv ramdisk 		ramdisk
 	setenv mlo 		mlo_falcon
 	setenv mlo_img 		mlo.img;
 	setenv u-boot 		u-boot.img
@@ -438,39 +442,32 @@ setenv use_usb 'if true; then
 	setenv do_load_linux	fatload usb 0 $loadaddr $bootfile
 	setenv do_load_ubi	fatload usb 0 $loadaddr ubifs.img
 	setenv do_load_splash 	fatload usb 0 $loadaddr $splash
+	setenv do_load_ramdisk	fatload usb 0 $ramaddr $ramdisk
 fi'
 
 if mmc rescan ${mmcdev}; then
 	run use_mmc;
 else;
-	run use_tftp;
+#	run use_tftp;
+	run use_usb;
 fi;
 
 setenv upd_all run upd updk updspl updsplash updfs updmlo
-
 setenv upd 'run upd_mlo  upd_uboot'
+setenv bootdelay 2
 
 # debug only, save the complete env
 saveenv
 
-#run upd_all
-
-# debug only, save the complete env
-#run use_tftp
-#saveenv
-
-run use_usb
-#check_update
-
 # check for / update u-boot
-#run check_update
+run check_update
 
 # continue in linux
 run boot_ramdisk
 #setenv rootpath /opt/bpp3/1.3/sysroots/bpp3-update
 #run net_nfs
 
-setenv bootdelay 2
+saveenv
 
 # green screen
 #mw 0x8fE00000 00ff00 1FE00
