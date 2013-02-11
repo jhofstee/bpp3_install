@@ -164,11 +164,12 @@ fi'
 
 setenv nandargs 'setenv bootargs root=${nandroot} rootfstype=${nandrootfstype}'
 # omapdss.def_disp=lcd omapfb.vram=0:1M vram=1M
-setenv misc 	'omapdss.def_disp=lcd omapfb.vram=0:2M vram=2M earlyprintk=ttyO0,115200'
+#setenv misc 	'omapdss.def_disp=lcd omapfb.vram=0:2M vram=2M earlyprintk=ttyO0,115200'
+setenv misc 	'omapdss.def_disp=lcd omapfb.vram=0:2M vram=2M fbskip quiet'
 setenv addmtd	'setenv bootargs ${bootargs} ${mtdparts}'
 setenv baudrate 115200
-setenv addtty	'setenv bootargs ${bootargs} console=tty1'
-#setenv addtty	'setenv bootargs ${bootargs} console=ttyO0,${baudrate}'
+#setenv addtty	'setenv bootargs ${bootargs} console=tty1'
+setenv addtty	'setenv bootargs ${bootargs} console=ttyO0,${baudrate}'
 setenv addmisc	'setenv bootargs ${bootargs} ${misc} ethaddr=${ethaddr}'
 setenv addip_sta 'setenv bootargs ${bootargs} ip=${ipaddr}:${serverip}:${gatewayip}:${netmask}:${hostname}:${netdev}:off'
 setenv addip_dyn	'setenv bootargs ${bootargs} ip=dhcp'
@@ -448,8 +449,8 @@ fi'
 if mmc rescan ${mmcdev}; then
 	run use_mmc;
 else;
-#	run use_tftp;
-	run use_usb;
+	run use_tftp;
+#	run use_usb;
 fi;
 
 setenv upd_all run upd updk updspl updsplash updfs updmlo
@@ -463,7 +464,7 @@ saveenv
 run check_update
 
 # continue in linux
-run boot_ramdisk
+#run boot_ramdisk
 #setenv rootpath /opt/bpp3/1.3/sysroots/bpp3-update
 #run net_nfs
 
