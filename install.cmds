@@ -32,7 +32,7 @@ setenv upd_mlo_img 'run load_mlo_img mlo_check_all'
 echo ========== env add U-boot update ==========
 
 setenv update_uboot 'if true; then
-	nand erase.part u-boot $uboot_size;
+	nand erase.part u-boot;
 	nand write $uloadaddr u-boot $uboot_load_size
 fi'
 
